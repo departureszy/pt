@@ -1,0 +1,20 @@
+{
+  "id": "lajidui",
+  "name": "垃圾堆",
+  "isShow": true,
+  "baseUrls": ["https://pt.lajidui.top/"],
+  "primaryUrl": "https://pt.lajidui.top/",
+  "siteType": "NexusPHP",
+  "searchCategories": [],
+  "features": {
+    "userProfile": true,
+    "torrentSearch": true,
+    "torrentDetail": true,
+    "download": true,
+    "favorites": false,
+    "downloadHistory": false,
+    "categorySearch": true,
+    "advancedSearch": true
+  },
+  "discountMapping": {}
+}

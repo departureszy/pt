@@ -1,0 +1,20 @@
+{
+  "id": "hxpt",
+  "name": "好学",
+  "isShow": true,
+  "baseUrls": ["https://www.hxpt.org/"],
+  "primaryUrl": "https://www.hxpt.org/",
+  "siteType": "NexusPHP",
+  "searchCategories": [],
+  "features": {
+    "userProfile": true,
+    "torrentSearch": true,
+    "torrentDetail": true,
+    "download": true,
+    "favorites": false,
+    "downloadHistory": false,
+    "categorySearch": true,
+    "advancedSearch": true
+  },
+  "discountMapping": {}
+}

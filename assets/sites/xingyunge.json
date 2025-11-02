@@ -1,0 +1,47 @@
+{
+  "id": "xingyunge",
+  "name": "星陨阁",
+  "isShow": true,
+  "baseUrls": [
+    "https://pt.xingyungept.org/",
+    "https://pt.xingyungept.cn/",
+    "http://xing.xingyunge.sbs/"
+  ],
+  "primaryUrl": "https://pt.xingyungept.org/",
+  "siteType": "NexusPHPWeb",
+  "searchCategories": [],
+  "features": {
+    "userProfile": true,
+    "torrentSearch": true,
+    "torrentDetail": true,
+    "download": true,
+    "favorites": true,
+    "downloadHistory": true,
+    "categorySearch": true,
+    "advancedSearch": true
+  },
+  "discountMapping": {},
+  "infoFinder": {
+    "categories": {
+      "path": "usercp.php?action=tracker",
+      "rows": {
+        "selector": "#outer > form > table > tbody > tr:nth-child(1) > td.rowfollow > table"
+      },
+      "fields": {
+        "categoryId": {
+          "selector": "a[href~=\"(torrents|special)\\.php\"]",
+          "attribute": "href",
+          "filter": {
+            "name": "regexp",
+            "args": "cat=(\\d+)",
+            "index": 1
+          }
+        },
+        "categoryName": {
+          "selector": "a[href~=\"(torrents|special)\\.php\"] > img",
+          "attribute": "title"
+        }
+      }
+    }
+  }
+}

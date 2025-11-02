@@ -1,0 +1,591 @@
+name: Build and Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version (e.g., v1.0.0)'
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  build-android-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || github.ref }}
+      
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          TAG="${{ github.event.inputs.tag }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+        fi
+        VERSION=${TAG#v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        
+        # Check if tag contains beta
+        if [[ "$TAG" == *"beta"* ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Update pubspec.yaml version
+      run: |
+        sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}+${{ github.run_number }}/" pubspec.yaml
+        
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        
+    # Flutter SDK 缓存
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.35.2'
+        channel: 'stable'
+        cache: true  # 启用 Flutter SDK 缓存
+        cache-key: 'flutter-:os:-:channel:-:version:-:arch:-:hash:'
+        cache-path: '${{ runner.tool_cache }}/flutter'
+    
+    # Pub 依赖缓存
+    - name: Cache pub dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.pub-cache
+          ${{ runner.tool_cache }}/flutter
+        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-pub-
+    
+    # Gradle 缓存
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          android/.gradle
+          android/app/.gradle
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Decode keystore
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
+      
+    - name: Create key.properties
+      run: |
+        echo "storePassword=${{ secrets.STORE_PASSWORD }}" > android/key.properties
+        echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+        echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+        echo "storeFile=keystore.jks" >> android/key.properties
+      
+    - name: Build APK - ARM64 (v8a)
+      run: |
+        flutter build apk --release --target-platform android-arm64
+        mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pt_mate-${{ steps.version.outputs.version }}-arm64-v8a.apk
+          
+    - name: Upload Android artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-artifacts
+        path: |
+          build/app/outputs/flutter-apk/pt_mate-${{ steps.version.outputs.version }}-arm64-v8a.apk
+        retention-days: 1
+        
+    # 直接在Android构建后添加Linux构建步骤
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y ninja-build libgtk-3-dev libblkid-dev libsecret-1-dev file libfuse2
+    
+    # CMake 缓存
+    - name: Cache CMake
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/linux
+          ~/.cmake
+        key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-cmake-
+        
+    - name: Build Linux
+      run: flutter build linux --release
+      
+    # AppImageTool 缓存
+    - name: Cache AppImageTool
+      uses: actions/cache@v4
+      with:
+        path: appimagetool-x86_64.AppImage
+        key: ${{ runner.os }}-appimagetool-continuous
+        restore-keys: |
+          ${{ runner.os }}-appimagetool-
+    
+    - name: Download AppImageTool
+      run: |
+        if [ ! -f appimagetool-x86_64.AppImage ]; then
+          wget -O appimagetool-x86_64.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        fi
+        chmod +x appimagetool-x86_64.AppImage
+        
+    - name: Create AppImage
+      run: |
+        # 创建AppDir结构
+        mkdir -p AppDir/usr/bin
+        mkdir -p AppDir/usr/lib
+        mkdir -p AppDir/usr/share/applications
+        mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+        
+        # 复制应用文件
+        cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+        
+        # 创建桌面文件
+        cat > AppDir/usr/share/applications/pt_mate.desktop << EOF
+        [Desktop Entry]
+        Type=Application
+        Name=PT Mate
+        Comment=PT伴侣
+        Exec=pt_mate
+        Icon=pt_mate
+        Categories=Network;
+        Terminal=false
+        EOF
+        
+        cp mt.png AppDir/usr/share/icons/hicolor/256x256/apps/pt_mate.png
+
+        # 创建AppRun脚本
+        cat > AppDir/AppRun << 'EOF'
+        #!/bin/bash
+        HERE="$(dirname "$(readlink -f "${0}")")"
+        export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+        exec "${HERE}/usr/bin/pt_mate" "$@"
+        EOF
+        chmod +x AppDir/AppRun
+        
+        # 复制桌面文件到根目录
+        cp AppDir/usr/share/applications/pt_mate.desktop AppDir/
+        
+        # 复制图标到根目录
+        cp AppDir/usr/share/icons/hicolor/256x256/apps/pt_mate.png AppDir/
+        
+        # 创建AppImage
+        ./appimagetool-x86_64.AppImage AppDir pt_mate-${{ steps.version.outputs.version }}-linux-x64.AppImage
+        
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-artifact
+        path: pt_mate-${{ steps.version.outputs.version }}-linux-x64.AppImage
+        retention-days: 1
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || github.ref }}
+        
+    - name: Extract version from tag
+      id: version
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          TAG="${{ github.event.inputs.tag }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+        fi
+        VERSION=${TAG#v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        
+    # Flutter SDK 缓存
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.35.2'
+        channel: 'stable'
+        cache: true  # 启用 Flutter SDK 缓存
+        cache-key: 'flutter-:os:-:channel:-:version:-:arch:-:hash:'
+        cache-path: '${{ runner.tool_cache }}/flutter'
+    
+    # Pub 依赖缓存
+    - name: Cache pub dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.pub-cache
+          ${{ runner.tool_cache }}/flutter
+        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-pub-
+        
+    # Visual Studio 缓存
+    - name: Cache Visual Studio
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:\Users\runneradmin\AppData\Local\Microsoft\VisualStudio
+          build/windows
+        key: ${{ runner.os }}-vs-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-vs-
+    
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Build Windows
+      run: flutter build windows --release
+    
+    - name: Install Inno Setup
+      run: |
+        # 检查是否已安装，避免重复安装
+        if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+          choco install innosetup -y
+        } else {
+          Write-Host "Inno Setup already installed"
+        }
+        
+    - name: Download Chinese language file
+      run: |
+        $languagesDir = "C:\Program Files (x86)\Inno Setup 6\Languages"
+        if (-not (Test-Path "$languagesDir\ChineseSimplified.isl")) {
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$languagesDir\ChineseSimplified.isl"
+        }
+        
+    - name: Compile Inno Setup installer
+      run: |
+        iscc /DMyAppVersion="${{ steps.version.outputs.version }}" windows/inno_setup.iss
+        
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-artifact
+        path: windows/Output/pt_mate-${{ steps.version.outputs.version }}-windows-x64.exe
+        retention-days: 1
+
+  build-ios-and-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || github.ref }}
+        
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          TAG="${{ github.event.inputs.tag }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+        fi
+        VERSION=${TAG#v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        
+    # Flutter SDK 缓存
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.35.2'
+        channel: 'stable'
+        cache: true  # 启用 Flutter SDK 缓存
+        cache-key: 'flutter-:os:-:channel:-:version:-:arch:-:hash:'
+        cache-path: '${{ runner.tool_cache }}/flutter'
+    
+    # Pub 依赖缓存
+    - name: Cache pub dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.pub-cache
+          ${{ runner.tool_cache }}/flutter
+        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-pub-
+    
+    # CocoaPods 缓存
+    - name: Cache CocoaPods
+      uses: actions/cache@v4
+      with:
+        path: |
+          ios/Pods
+          ~/.cocoapods
+        key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-pods-
+    
+    # Xcode 缓存
+    - name: Cache Xcode DerivedData
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData
+        key: ${{ runner.os }}-xcode-${{ hashFiles('**/project.pbxproj') }}
+        restore-keys: |
+          ${{ runner.os }}-xcode-
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Build unsigned IPA
+      run: |
+        # Build iOS app bundle
+        flutter build ios --release --no-codesign
+        
+        # Create build directory
+        mkdir -p ios/build
+        
+        # Create IPA manually from app bundle
+        mkdir -p Payload
+        cp -r build/ios/iphoneos/Runner.app Payload/
+        zip -r ios/build/pt_mate-${{ steps.version.outputs.version }}-unsigned.ipa Payload/
+        rm -rf Payload
+        
+    - name: Create xcarchive
+      run: |
+        cd ios
+        xcodebuild -workspace Runner.xcworkspace \
+          -scheme Runner \
+          -configuration Release \
+          -destination generic/platform=iOS \
+          -archivePath build/Runner.xcarchive \
+          archive \
+          CODE_SIGNING_ALLOWED=NO
+        
+    - name: Create xcarchive zip
+      run: |
+        cd ios/build
+        zip -r pt_mate-${{ steps.version.outputs.version }}.xcarchive.zip Runner.xcarchive
+        
+    - name: Build macOS
+      run: flutter build macos --release
+      
+    - name: Ad-hoc sign macOS app
+      run: |
+        codesign --force --deep --sign - \
+          --entitlements "macos/Runner/Release.entitlements" \
+          "build/macos/Build/Products/Release/pt_mate.app"
+      
+    - name: Create macOS DMG
+      run: |
+        hdiutil create -volname "PT Mate ${{ steps.version.outputs.version }}" \
+          -srcfolder "build/macos/Build/Products/Release/pt_mate.app" \
+          -ov -format UDZO \
+          "build/macos/Build/Products/Release/pt_mate-${{ steps.version.outputs.version }}-macos-x64.dmg"
+
+    - name: Zip macOS app
+      run: |
+        cd build/macos/Build/Products/Release
+        zip -r pt_mate-${{ steps.version.outputs.version }}-macos-x64.app.zip pt_mate.app
+        cd -
+          
+    - name: Upload iOS and macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ios-macos-artifacts
+        path: |
+          ios/build/pt_mate-${{ steps.version.outputs.version }}-unsigned.ipa
+          ios/build/pt_mate-${{ steps.version.outputs.version }}.xcarchive.zip
+          build/macos/Build/Products/Release/pt_mate-${{ steps.version.outputs.version }}-macos-x64.dmg
+          build/macos/Build/Products/Release/pt_mate-${{ steps.version.outputs.version }}-macos-x64.app.zip
+        retention-days: 1
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [build-android-linux, build-windows, build-ios-and-macos]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || github.ref }}
+        
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          TAG="${{ github.event.inputs.tag }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+        fi
+        VERSION=${TAG#v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        
+        # Check if tag contains beta
+        if [[ "$TAG" == *"beta"* ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Get latest commit message
+      id: commit_message
+      run: |
+        # Get the latest commit message (full message including body)
+        COMMIT_MESSAGE=$(git log -1 --pretty=format:"%B")
+        
+        # Save to output using multiline format
+        echo "message<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMMIT_MESSAGE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      
+    - name: Create Release and Upload All Artifacts
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: Release ${{ steps.version.outputs.tag }}
+        body: |
+          ## Changes in this release
+          ${{ steps.commit_message.outputs.message }}
+          
+          ## 📱 Android APK Downloads
+          
+          - **ARM64 APK** (arm64-v8a): For modern 64-bit devices
+          
+          ## 💻 Desktop Downloads
+          
+          - **Windows x64**: Windows installer for 64-bit systems
+          - **Linux x64**: Linux AppImage for 64-bit systems (portable, no installation required)
+          - **macOS x64**: macOS DMG image for 64-bit systems
+          - **macOS x64 (app)**: Zipped .app file for manual installation or use on systems where DMG is not preferred
+
+          ## 🍎 iOS Downloads
+          
+          - **Unsigned IPA**: For sideloading with tools like AltStore, Sideloadly, etc.
+          - **Xcode Archive**: For developers to re-sign and distribute
+          
+        draft: false
+        prerelease: ${{ steps.version.outputs.is_prerelease }}
+        files: |
+          android-artifacts/pt_mate-${{ steps.version.outputs.version }}-arm64-v8a.apk
+          windows-artifact/pt_mate-${{ steps.version.outputs.version }}-windows-x64.exe
+          linux-artifact/pt_mate-${{ steps.version.outputs.version }}-linux-x64.AppImage
+          ios-macos-artifacts/ios/build/pt_mate-${{ steps.version.outputs.version }}-unsigned.ipa
+          ios-macos-artifacts/ios/build/pt_mate-${{ steps.version.outputs.version }}.xcarchive.zip
+          ios-macos-artifacts/build/macos/Build/Products/Release/pt_mate-${{ steps.version.outputs.version }}-macos-x64.dmg
+          ios-macos-artifacts/build/macos/Build/Products/Release/pt_mate-${{ steps.version.outputs.version }}-macos-x64.app.zip
+        fail_on_unmatched_files: true
+        
+    - name: Send Telegram notification
+      env:
+        TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      run: |
+        # Function to escape MarkdownV2 special characters (preserve formatting chars)
+        escape_tg() {
+          echo "$1" | \
+            sed 's/_/\\_/g' | \
+            sed 's/\[/\\[/g' | \
+            sed 's/\]/\\]/g' | \
+            sed 's/(/\\(/g' | \
+            sed 's/)/\\)/g' | \
+            sed 's/~/\\~/g' | \
+            sed 's/`/\\`/g' | \
+            sed 's/>/\\>/g' | \
+            sed 's/+/\\+/g' | \
+            sed 's/=/\\=/g' | \
+            sed 's/|/\\|/g' | \
+            sed 's/{/\\{/g' | \
+            sed 's/}/\\}/g' | \
+            sed 's/\./\\./g' | \
+            sed 's/!/\\!/g' | \
+            sed 's/-/\\-/g' | \
+            sed 's/\//\\\//g'
+        }
+    
+        # Extract and process commit message
+        RAW_COMMIT_MESSAGE="${{ steps.commit_message.outputs.message }}"
+        
+        # Process the commit message: convert ## titles to *title* and - to •
+        PROCESSED_MESSAGE=$(echo "$RAW_COMMIT_MESSAGE" | \
+          sed 's/^[[:space:]]*## \(.*\)/*\1*/' | \
+          sed 's/^- /• /')
+        
+        # Escape the processed message
+        COMMIT_MESSAGE=$(escape_tg "$PROCESSED_MESSAGE")
+    
+        # Create Telegram message
+        VERSION="${{ steps.version.outputs.tag }}"
+        RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}"
+        
+        MESSAGE=$(printf '%s\n' \
+          "*🎉 PT Mate $(escape_tg "$VERSION") 发布了！*" \
+          "" \
+          "$COMMIT_MESSAGE" \
+          "" \
+          "📱 [GitHub Release]($(escape_tg "$RELEASE_URL"))")
+    
+        echo "Final message to send:"
+        echo "$MESSAGE"
+    
+        # Send message to Telegram using jq to properly escape JSON
+        JSON_PAYLOAD=$(printf '%s\n' "$MESSAGE" | jq -Rs \
+          --arg chat_id "${TG_CHAT_ID}" \
+          '{
+            chat_id: $chat_id,
+            text: .,
+            parse_mode: "MarkdownV2",
+            disable_web_page_preview: false
+          }')
+        
+        echo "JSON payload:"
+        echo "$JSON_PAYLOAD"
+        
+        RESPONSE=$(echo "$JSON_PAYLOAD" | curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+          -H "Content-Type: application/json" \
+          -d @-)
+    
+        # Extract message_id from response
+        MESSAGE_ID=$(echo "$RESPONSE" | jq -r '.result.message_id')
+    
+        if [ "$MESSAGE_ID" != "null" ] && [ "$MESSAGE_ID" != "" ]; then
+          echo "Message sent successfully with ID: $MESSAGE_ID"
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/unpinAllChatMessages" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"${TG_CHAT_ID}\"
+            }"
+          # Pin the message
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/pinChatMessage" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"${TG_CHAT_ID}\",
+              \"message_id\": ${MESSAGE_ID},
+              \"disable_notification\": false
+            }"
+          
+          echo "Message pinned successfully"
+        else
+          echo "Failed to send message"
+          echo "Response: $RESPONSE"
+          exit 1
+        fi

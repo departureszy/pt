@@ -1,0 +1,297 @@
+{
+  "defaultTemplates": {
+    "M-Team": {
+      "name": "M-Team 站点",
+      "baseUrl": "https://",
+      "searchCategories": [
+        {
+          "id": "normal",
+          "displayName": "综合",
+          "parameters": "{\"mode\": \"normal\"}"
+        },
+        {
+          "id": "tvshow",
+          "displayName": "电视",
+          "parameters": "{\"mode\": \"tvshow\"}"
+        },
+        {
+          "id": "movie",
+          "displayName": "电影",
+          "parameters": "{\"mode\": \"movie\"}"
+        },
+        {
+          "id": "official",
+          "displayName": "官组",
+          "parameters": "{\"mode\": \"normal\", \"teams\": [\"44\", \"9\", \"43\"]}"
+        }
+      ],
+      "features": {
+        "userProfile": true,
+        "torrentSearch": true,
+        "torrentDetail": true,
+        "download": true,
+        "favorites": true,
+        "downloadHistory": true,
+        "categorySearch": true,
+        "advancedSearch": true
+      },
+      "discountMapping": {
+        "FREE": "FREE",
+        "PERCENT_10": "PERCENT_10",
+        "PERCENT_20": "PERCENT_20",
+        "PERCENT_30": "PERCENT_30",
+        "PERCENT_40": "PERCENT_40",
+        "PERCENT_50": "PERCENT_50",
+        "PERCENT_60": "PERCENT_60",
+        "PERCENT_70": "PERCENT_70",
+        "PERCENT_80": "PERCENT_80",
+        "PERCENT_90": "PERCENT_90",
+        "NORMAL": "NORMAL"
+      }
+    },
+    "NexusPHP": {
+      "name": "NexusPHP api",
+      "baseUrl": "https://",
+      "searchCategories": [],
+      "features": {
+        "userProfile": true,
+        "torrentSearch": true,
+        "torrentDetail": true,
+        "download": true,
+        "favorites": false,
+        "downloadHistory": false,
+        "categorySearch": true,
+        "advancedSearch": true
+      },
+      "discountMapping": {
+        "Free": "FREE",
+        "Free*2": "2xFREE",
+        "2X 50%": "2x50%",
+        "10%": "PERCENT_10",
+        "20%": "PERCENT_20",
+        "30%": "PERCENT_30",
+        "40%": "PERCENT_40",
+        "50%": "PERCENT_50",
+        "60%": "PERCENT_60",
+        "70%": "PERCENT_70",
+        "80%": "PERCENT_80",
+        "90%": "PERCENT_90",
+        "Normal": "NORMAL"
+      }
+    },
+    "NexusPHPWeb": {
+      "name": "NexusPHP web",
+      "baseUrl": "https://",
+      "searchCategories": [],
+      "features": {
+        "userProfile": true,
+        "torrentSearch": true,
+        "torrentDetail": true,
+        "download": true,
+        "favorites": true,
+        "downloadHistory": true,
+        "categorySearch": true,
+        "advancedSearch": true
+      },
+      "discountMapping": {
+        "Free": "FREE",
+        "2X Free": "2xFREE",
+        "2X 50%": "2x50%",
+        "10%": "PERCENT_10",
+        "20%": "PERCENT_20",
+        "30%": "PERCENT_30",
+        "40%": "PERCENT_40",
+        "50%": "PERCENT_50",
+        "60%": "PERCENT_60",
+        "70%": "PERCENT_70",
+        "80%": "PERCENT_80",
+        "90%": "PERCENT_90",
+        "Normal": "NORMAL"
+      },
+      "infoFinder": {
+        "userInfo": {
+          "path": "usercp.php",
+          "rows": {
+            "selector": "table#info_block > span.medium"
+          },
+          "fields": {
+            "userId": {
+              "selector": "a[href^=\"userdetails.php?id=\"]",
+              "attribute": "href",
+              "filter": {
+                "name": "regexp",
+                "args": "id=(\\d+)",
+                "index": 1
+              }
+            },
+            "userName": {
+              "selector": "a[href^=\"userdetails.php?id=\"] > b",
+              "attribute": "text"
+            },
+            "ratio": {
+              "selector": "",
+              "attribute": "text",
+              "filter": {
+                "name": "regexp",
+                "args": "分享率(:|：)\\s*([^\\s]+)",
+                "index": 2
+              }
+            },
+            "upload": {
+              "selector": "",
+              "attribute": "text",
+              "filter": {
+                "name": "regexp",
+                "args": "(上传|上傳)量(:|：)\\s*(.*?B)",
+                "index": 3
+              }
+            },
+            "download": {
+              "selector": "",
+              "attribute": "text",
+              "filter": {
+                "name": "regexp",
+                "args": "(下载|下載)量(:|：)\\s*(.*?B)",
+                "index": 3
+              }
+            },
+            "bonus": {
+              "selector": "",
+              "attribute": "text",
+              "filter": {
+                "name": "regexp",
+                "args": ":\\s*([^\\s]+)\\s*\\[*(签|簽)到",
+                "index": 1
+              }
+            }
+          }
+        },
+        "passKey": {
+          "path": "usercp.php",
+          "rows": {
+            "selector": "#outer > table.main > next > tbody > tr:nth-child(4) > td.rowfollow"
+          },
+          "fields": {
+            "passKey": {
+              "selector": "",
+              "attribute": "text"
+            }
+          }
+        },
+        "search": {
+          "torrentPath": "torrents.php",
+          "specialPath": "special.php",
+          "rows": {
+            "selector": "table.torrents > tbody:nth-child > tr:nth-child"
+          },
+          "fields": {
+            "torrentId": {
+              "selector": "a[href^=\"details.php?id=\"]",
+              "attribute": "href",
+              "filter": {
+                "name": "regexp",
+                "args": "id=(\\d+)",
+                "index": 1
+              }
+            },
+            "torrentName": {
+              "selector": "a[href^=\"details.php?id=\"] > b",
+              "attribute": "text"
+            },
+            "description": {
+              "selector": "table.torrentname > tbody > tr > td:nth-child(2)",
+              "attribute": "text"
+            },
+            "discount": {
+              "selector": "table.torrentname > img[class^=\"pro_\"]",
+              "attribute": "alt"
+            },
+            "discountEndTime": {
+              "selector": "table.torrentname > img[class^=\"pro_\"]",
+              "attribute": "onmouseover",
+              "filter": {
+                "name": "regexp",
+                "args": "<span title=\\\"(.*?)\\\"",
+                "index": 1
+              }
+            },
+            "downloadUrl": {
+              
+            },
+            "seedersText": {
+              "selector": "td:nth-child(6)",
+              "attribute": "text"
+            },
+            "leechersText": {
+              "selector": "td:nth-child(7)",
+              "attribute": "text"
+            },
+            "sizeText": {
+              "selector": "td:nth-child(5)",
+              "attribute": "text"
+            },
+            "downloadStatus": {
+              "selector": "table.torrentname > tbody > tr > td:nth-child(2) > div[title]",
+              "attribute": "title",
+              "filter": {
+                "name": "regexp",
+                "args": "(\\d+)%",
+                "index": 1
+              }
+            },
+            "collection": {
+              "selector": "table.torrentname > tbody > tr > td:nth-child(4) > img.bookmark",
+              "attribute": "src"
+            },
+            "cover": {
+              "selector": "table.torrentname > tbody > tr > td:nth-child(1) > img[data-src]",
+              "attribute": "data-src"
+            },
+            "createData": {
+              "selector": "td:nth-child(4) > span[title]",
+              "attribute": "title"
+            },
+            "doubanRating": {
+              "selector": "table.torrentname > img[title==\"douban\"] > next",
+              "attribute": "text"
+            },
+            "imdbRating": {
+              "selector": "table.torrentname > img[title==\"imdb\"] > next",
+              "attribute": "text"
+            }
+          }
+        },
+        "categories": {
+          "path": "usercp.php?action=tracker",
+          "rows": {
+            "selector": "#outer > table.main > next > tbody:nth-child > tr:nth-child(2) > td.rowfollow > table"
+          },
+          "fields": {
+            "categoryId": {
+              "selector": "a[href~=\"(torrents|special)\\.php\"]",
+              "attribute": "href",
+              "filter": {
+                "name": "regexp",
+                "args": "cat=(\\d+)",
+                "index": 1
+              }
+            },
+            "categoryName": {
+              "selector": "a[href~=\"(torrents|special)\\.php\"] > img",
+              "attribute": "title"
+            }
+          }
+        }
+      },
+      "request":{
+        "collect": {
+          "path":"/bookmark.php",
+          "method":"GET",
+          "params":{
+            "torrentid":"{torrentId}"
+          }
+        }
+      }
+    }
+  }
+}
